@@ -1,0 +1,12 @@
+[
+  {
+    "id": "tavern",
+    "name": "酒馆大厅",
+    "description": "一间温暖而昏暗的酒馆。壁炉里的火光在墙上投出跳动的影子，空气中弥漫着麦酒和烤肉的香气。",
+    "width": 800,
+    "height": 600,
+    "defaultSpawnX": 50,
+    "defaultSpawnY": 300,
+    "objectsJson": "[{\"id\":\"bar\",\"name\":\"吧台\",\"type\":\"counter\",\"x\":180,\"y\":250,\"width\":200,\"height\":40},{\"id\":\"table1\",\"name\":\"木桌\",\"type\":\"table\",\"x\":350,\"y\":150,\"width\":60,\"height\":60},{\"id\":\"table2\",\"name\":\"木桌\",\"type\":\"table\",\"x\":500,\"y\":150,\"width\":60,\"height\":60},{\"id\":\"table3\",\"name\":\"木桌\",\"type\":\"table\",\"x\":350,\"y\":350,\"width\":60,\"height\":60},{\"id\":\"table4\",\"name\":\"木桌\",\"type\":\"table\",\"x\":500,\"y\":350,\"width\":60,\"height\":60},{\"id\":\"fireplace\",\"name\":\"壁炉\",\"type\":\"decoration\",\"x\":680,\"y\":80,\"width\":60,\"height\":80},{\"id\":\"shelves\",\"name\":\"酒柜\",\"type\":\"decoration\",\"x\":180,\"y\":120,\"width\":30,\"height\":150},{\"id\":\"staircase\",\"name\":\"楼梯\",\"type\":\"structure\",\"x\":50,\"y\":100,\"width\":60,\"height\":40},{\"id\":\"door\",\"name\":\"大门\",\"type\":\"entrance\",\"x\":50,\"y\":280,\"width\":40,\"height\":60}]"
+  }
+]

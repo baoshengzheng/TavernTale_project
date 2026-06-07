@@ -1,0 +1,40 @@
+# 奇幻酒馆 — 游戏服务器配置
+# Iteration 0: H2 内存数据库 + Netty WebSocket
+
+server:
+  port: 8080
+
+spring:
+  application:
+    name: tavern-tales-server
+
+  # H2 配置 — 内存模式，应用重启后数据丢失
+  # 后续切换 PostgreSQL 时：改 url/driver/username/password，加 postgresql 驱动依赖
+  datasource:
+    url: jdbc:h2:mem:taverntales
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  # H2 Web 控制台（开发用）：http://localhost:8080/h2-console
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  # JPA 自动建表，开发阶段用 update，生产环境建议 validate
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+
+  # JSON 日期格式
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+
+# 游戏配置
+game:
+  tick-rate: 200        # 游戏主循环 tick 间隔（毫秒），5 tick/s
+  npc-trigger-radius: 80 # NPC 感知玩家半径（像素）
+  ai-timeout: 3000       # AI 调用超时时间（毫秒）

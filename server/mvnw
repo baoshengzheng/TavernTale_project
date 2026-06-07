@@ -1,0 +1,16 @@
+#!/bin/sh
+# 奇幻酒馆 — Maven Wrapper
+# 使用系统已安装的 Maven 3.9.9
+set -e
+
+MVN_HOME="/e/software/maven/apache-maven-3.9.9"
+
+if [ ! -f "$MVN_HOME/bin/mvn" ]; then
+  echo "错误: 未在 $MVN_HOME 找到 Maven"
+  echo "请安装 Maven 或修改 MVN_HOME 指向正确路径"
+  exit 1
+fi
+
+export MAVEN_HOME="$MVN_HOME"
+MAVEN_OPTS="${MAVEN_OPTS:-} -Dmaven.repo.local=/e/AAA_777/maven_repo"
+exec "$MVN_HOME/bin/mvn" "$@"

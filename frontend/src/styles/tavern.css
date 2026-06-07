@@ -1,0 +1,274 @@
+/* ========================================
+   奇幻酒馆 — 样式
+   中古奇幻风格，暖色调，木质感
+   ======================================== */
+
+/* ---------- 全局 ---------- */
+:root {
+  --color-bg: #1a1208;
+  --color-bg-panel: #2a1e0e;
+  --color-bg-map: #3a2a14;
+  --color-text: #e8dcc8;
+  --color-text-dim: #a09070;
+  --color-accent: #d4a048;
+  --color-accent-hover: #e8b860;
+  --color-danger: #c04040;
+  --color-success: #60a060;
+  --border-wood: 2px solid #5c3a1e;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'Georgia', 'Noto Serif SC', serif;
+  overflow: hidden;
+  height: 100vh;
+}
+
+#root {
+  height: 100vh;
+}
+
+/* ---------- 游戏容器 ---------- */
+.game-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* ---------- 顶栏 ---------- */
+.game-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 20px;
+  background: var(--color-bg-panel);
+  border-bottom: var(--border-wood);
+}
+
+.game-title {
+  font-size: 1.4rem;
+  color: var(--color-accent);
+  letter-spacing: 2px;
+}
+
+/* ---------- 连接状态 ---------- */
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  padding: 4px 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-connecting .status-dot {
+  background: var(--color-accent);
+  animation: pulse 1s infinite;
+}
+
+.status-connected .status-dot {
+  background: var(--color-success);
+}
+
+.status-disconnected .status-dot {
+  background: var(--color-text-dim);
+}
+
+.status-error .status-dot {
+  background: var(--color-danger);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ---------- 游戏世界 ---------- */
+.game-world {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow: hidden;
+}
+
+/* ---------- 加载状态 ---------- */
+.loading-state {
+  text-align: center;
+  color: var(--color-text-dim);
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--color-bg-panel);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.retry-button {
+  margin-top: 16px;
+  padding: 8px 24px;
+  background: var(--color-accent);
+  color: var(--color-bg);
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.retry-button:hover {
+  background: var(--color-accent-hover);
+}
+
+/* ---------- 房间视图 ---------- */
+.room-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 900px;
+}
+
+.room-header {
+  text-align: center;
+}
+
+.room-header h2 {
+  font-size: 1.2rem;
+  color: var(--color-accent);
+  margin-bottom: 4px;
+}
+
+.room-desc {
+  font-size: 0.85rem;
+  color: var(--color-text-dim);
+  line-height: 1.5;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* ---------- 酒馆地图（CSS 俯视图） ---------- */
+.tavern-map {
+  position: relative;
+  background: var(--color-bg-map);
+  border: var(--border-wood);
+  border-radius: 8px;
+  margin: 0 auto;
+  cursor: crosshair;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+/* 地板纹理（CSS 网格模拟木地板） */
+.floor {
+  position: absolute;
+  inset: 0;
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 39px,
+      rgba(0, 0, 0, 0.1) 39px,
+      rgba(0, 0, 0, 0.1) 40px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 39px,
+      rgba(255, 255, 255, 0.02) 39px,
+      rgba(255, 255, 255, 0.02) 40px
+    );
+  pointer-events: none;
+}
+
+/* ---------- 家具 ---------- */
+.room-object {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  z-index: 1;
+}
+
+.object-label {
+  font-size: 0.8rem;
+  color: var(--color-text);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  user-select: none;
+  pointer-events: none;
+}
+
+/* ---------- 玩家 ---------- */
+.my-player {
+  position: absolute;
+  z-index: 10;
+  transition: left 0.1s, top 0.1s;
+  pointer-events: none;
+}
+
+.other-player {
+  position: absolute;
+  z-index: 9;
+  transition: left 0.2s, top 0.2s;
+  pointer-events: none;
+}
+
+.player-emoji {
+  font-size: 1.5rem;
+  display: block;
+  text-align: center;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+}
+
+.player-name-tag {
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.7rem;
+  color: var(--color-text-dim);
+  white-space: nowrap;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 1px 6px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+/* ---------- 底栏 ---------- */
+.game-footer {
+  padding: 6px 20px;
+  background: var(--color-bg-panel);
+  border-top: var(--border-wood);
+  font-size: 0.8rem;
+  color: var(--color-text-dim);
+  text-align: center;
+}
+
+.game-footer span {
+  margin: 0 4px;
+}
