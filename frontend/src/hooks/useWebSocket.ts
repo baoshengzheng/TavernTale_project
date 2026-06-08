@@ -65,27 +65,41 @@ export function useWebSocket(url: string) {
     }
 
     setStatus('connecting')
-    console.log(`[WS] 正在连接: ${url}`)
+    log('正在连接', url)
 
     const ws = new WebSocket(url)
+    setupOpenHandler(ws)
+    setupMessageHandler(ws)
+    setupCloseHandler(ws)
+    setupErrorHandler(ws)
 
+    wsRef.current = ws
+  }, [url, send]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * 配置 WebSocket 打开处理器：标记在线 + 启动心跳。
+   */
+  const setupOpenHandler = (ws: WebSocket) => {
     ws.onopen = () => {
       console.log('[WS] 已连接')
       setStatus('connected')
       reconnectCountRef.current = 0
 
-      // 启动心跳：每 30 秒发送 PING
       pingIntervalRef.current = setInterval(() => {
         send({ type: 'PING', payload: {} })
       }, 30000)
     }
+  }
 
+  /**
+   * 配置消息处理器：解析 JSON + 按 type 分发给监听器。
+   */
+  const setupMessageHandler = (ws: WebSocket) => {
     ws.onmessage = (event) => {
       try {
         const msg: WebSocketMessage = JSON.parse(event.data)
         setLastMessage(msg)
 
-        // 触发对应类型的监听器
         const handler = listenersRef.current.get(msg.type)
         if (handler) {
           handler(msg)
@@ -94,13 +108,18 @@ export function useWebSocket(url: string) {
         console.error('[WS] 消息解析失败:', e)
       }
     }
+  }
 
+  /**
+   * 配置关闭处理器：标记断连 + 自动重连。
+   * 重连策略：首次断连后 3 秒重试，最多重试 5 次。
+   */
+  const setupCloseHandler = (ws: WebSocket) => {
     ws.onclose = (event) => {
       console.log(`[WS] 连接关闭: code=${event.code}`)
       setStatus('disconnected')
       cleanup()
 
-      // 自动重连
       if (reconnectCountRef.current < maxReconnect) {
         reconnectCountRef.current++
         console.log(`[WS] ${reconnectDelay}ms 后重试 (${reconnectCountRef.current}/${maxReconnect})`)
@@ -110,13 +129,23 @@ export function useWebSocket(url: string) {
         setStatus('error')
       }
     }
+  }
 
+  /**
+   * 配置错误处理器：仅打印日志，断连由 onclose 处理。
+   */
+  const setupErrorHandler = (ws: WebSocket) => {
     ws.onerror = (error) => {
       console.error('[WS] 连接错误:', error)
     }
+  }
 
-    wsRef.current = ws
-  }, [url, send])
+  /**
+   * 带前缀的控制台日志。
+   */
+  const log = (action: string, detail?: string) => {
+    console.log(`[WS] ${action}${detail ? ': ' + detail : ''}`)
+  }
 
   /**
    * 断开连接。

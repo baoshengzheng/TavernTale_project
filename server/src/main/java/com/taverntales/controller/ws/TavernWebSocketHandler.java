@@ -49,60 +49,87 @@ public class TavernWebSocketHandler implements WebSocketHandler {
      */
     @Override
     public Mono<Void> handle(WebSocketSession session) {
-        // 从查询参数获取 playerId
-        String playerId = extractQueryParam(session, "playerId");
-        String playerName = extractQueryParam(session, "playerName");
-
-        if (playerId == null || playerId.isBlank()) {
-            log.warn("连接缺少 playerId 参数，拒绝连接");
+        String playerId = resolvePlayerId(session);
+        if (playerId == null) {
             return session.close();
         }
-        if (playerName == null || playerName.isBlank()) {
-            playerName = "旅人_" + playerId.substring(0, Math.min(4, playerId.length()));
-        }
 
-        // 注册会话
+        // 注册会话 + 玩家进入酒馆
         sessionManager.register(playerId, session);
-
-        // 玩家进入酒馆
-        Room defaultRoom = worldService.getAllRooms().stream().findFirst()
-                .orElse(null);
-        Player player = playerService.enterTavern(
-                playerId, playerName,
-                defaultRoom != null ? defaultRoom.getId() : "tavern",
-                defaultRoom != null ? defaultRoom.getDefaultSpawnX() : 50,
-                defaultRoom != null ? defaultRoom.getDefaultSpawnY() : 300
-        );
-
-        // 发送初始世界状态
+        playerService.enterTavern(playerId, resolvePlayerName(session, playerId),
+                getDefaultRoomId(), getDefaultSpawnX(), getDefaultSpawnY());
         sendWorldState(session, playerId);
 
-        // 处理消息流：接收消息 → 处理 → 回复
+        // 处理消息流：接收 → 路由 → 清理
         return session.receive()
-                .doOnNext(message -> {
-                    String text = message.getPayloadAsText();
-                    handleMessage(session, playerId, text);
-                })
+                .doOnNext(msg -> handleMessage(session, playerId, msg.getPayloadAsText()))
                 .doOnError(error -> log.error("玩家 [{}] WebSocket 异常", playerId, error))
-                .doOnComplete(() -> {
-                    // 连接正常关闭
-                    sessionManager.unregister(playerId);
-                    playerService.leaveTavern(playerId);
-                    // 通知其他玩家有人离开
-                    broadcastPlayerLeft(playerId);
-                })
-                .doOnCancel(() -> {
-                    // 连接异常中断
-                    sessionManager.unregister(playerId);
-                    playerService.leaveTavern(playerId);
-                })
+                .doOnComplete(() -> handleSessionCleanup(playerId, true))
+                .doOnCancel(() -> handleSessionCleanup(playerId, false))
                 .then()
-                // 保证异常时也清理资源
                 .onErrorResume(error -> {
-                    sessionManager.unregister(playerId);
-                    playerService.leaveTavern(playerId);
+                    handleSessionCleanup(playerId, false);
                     return Mono.empty();
                 });
+    }
+
+    /**
+     * 从查询参数提取并校验 playerId，不存在则返回 null。
+     */
+    private String resolvePlayerId(WebSocketSession session) {
+        String playerId = extractQueryParam(session, "playerId");
+        if (playerId == null || playerId.isBlank()) {
+            log.warn("连接缺少 playerId 参数，拒绝连接");
+            return null;
+        }
+        return playerId;
+    }
+
+    /**
+     * 从查询参数提取 playerName，缺失则生成默认名称。
+     */
+    private String resolvePlayerName(WebSocketSession session, String playerId) {
+        String name = extractQueryParam(session, "playerName");
+        return (name != null && !name.isBlank())
+                ? name
+                : "旅人_" + playerId.substring(0, Math.min(4, playerId.length()));
+    }
+
+    /**
+     * 获取默认房间 ID，兜底用。
+     */
+    private String getDefaultRoomId() {
+        return worldService.getAllRooms().stream().findFirst()
+                .map(Room::getId).orElse("tavern");
+    }
+
+    /**
+     * 获取默认出生点 X。
+     */
+    private int getDefaultSpawnX() {
+        return worldService.getAllRooms().stream().findFirst()
+                .map(Room::getDefaultSpawnX).orElse(50);
+    }
+
+    /**
+     * 获取默认出生点 Y。
+     */
+    private int getDefaultSpawnY() {
+        return worldService.getAllRooms().stream().findFirst()
+                .map(Room::getDefaultSpawnY).orElse(300);
+    }
+
+    /**
+     * 玩家断连后的清理工作。
+     *
+     * @param broadcast true=正常关闭需广播离开；false=异常中断不广播（连接可能已不可靠）
+     */
+    private void handleSessionCleanup(String playerId, boolean broadcast) {
+        sessionManager.unregister(playerId);
+        playerService.leaveTavern(playerId);
+        if (broadcast) {
+            broadcastPlayerLeft(playerId);
+        }
     }
 
     /**

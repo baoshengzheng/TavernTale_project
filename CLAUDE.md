@@ -44,7 +44,7 @@ make dev-web    # React 前端
 
 ## 代码要求
 
-- Java: `com.taverntales.*`，方法 >20 行考虑拆分
+- Java: `com.taverntales.*`，每个方法不超过 50 行，超出则提取为更小的私有方法
 - 每个新 `public` 方法必须有注释块：说明理由和注意事项
 - NPC 配置 JSON 每个字段必须有 `//` 注释
 - 前端组件遵循 React 函数组件 + TypeScript 类型定义
