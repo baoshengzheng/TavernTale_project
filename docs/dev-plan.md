@@ -7,21 +7,23 @@
 **目标**：Spring Boot 启动，浏览器打开能看到酒馆地图，WebSocket 已连接。
 
 ### 交付物
-- [ ] Spring Boot 3.4 项目初始化（Maven + pom.xml）
-- [ ] WebSocket 端点（`/ws/tavern`），支持连接/心跳/断连
-- [ ] 简单的世界模型：Room（房间）定义，酒馆地图 JSON
-- [ ] 玩家实体：进入酒馆、获取初始位置
-- [ ] H2 数据库配置 + JPA 实体
-- [ ] React + Vite 前端脚手架，显示酒馆 CSS 俯视图
-- [ ] WebSocket 连接指示器（页面显示连接状态）
+- [x] Spring Boot 3.4 项目初始化（Maven + pom.xml）
+- [x] WebSocket 端点（`/ws/tavern`），支持连接/心跳/断连
+- [x] 简单的世界模型：Room（房间）定义，酒馆地图 JSON
+- [x] 玩家实体：进入酒馆、获取初始位置
+- [x] H2 数据库配置 + JPA 实体
+- [x] React + Vite 前端脚手架，显示酒馆 CSS 俯视图
+- [x] WebSocket 连接指示器（页面显示连接状态）
+- [x] 多人实时同屏（WASD 移动 + 位置广播）
 
 ### 演示标准
-浏览器打开 `localhost:5173` → 看到酒馆俯视图（CSS 画的吧台/桌椅/壁炉）→ WebSocket 状态绿色 ✅ → 玩家角色显示在门口
+浏览器打开 `localhost:5173` → 看到酒馆俯视图（CSS 画的吧台/桌椅/壁炉）→ WebSocket 状态绿色 ✅ → 玩家角色显示在门口 → WASD 移动流畅 ✅ → 多玩家同屏可见 ✅
 
 ### 不做的
 - NPC（Iteration 1 做）
-- 对话系统
-- Python AI 服务
+- 对话系统（Iteration 1 做）
+- Python AI 服务（Iteration 1 做）
+- Canvas 2D 渲染（Iteration 2 做）
 
 ---
 
@@ -30,15 +32,19 @@
 **目标**：Edith 老板娘站在吧台后，玩家点她能自由对话。
 
 ### 交付物
-- [ ] NPC 数据模型 + JSON 配置（Edith 的 OCEAN 参数、背景 Prompt、位置）
-- [ ] NpcFactory：启动时从配置目录加载所有 NPC
-- [ ] NPC 感知系统：玩家进入 NPC 触发范围
+- [ ] NPC 定义（JSON 文件，`server/src/main/resources/npcs/`）：OCEAN 参数、背景 Prompt、位置、触发半径
+- [ ] NPC 运行时状态（H2 `npc_states` 表）：当前位置、情绪、FSM 状态、好感度、记忆
+- [ ] NpcFactory：启动时从配置目录加载所有 NPC 定义，合并 H2 中的运行时状态
+- [ ] NPC 感知系统：前端算距离高亮 NPC（纯 UI），后端在 `handlePlayerMove` 中做权威距离校验
+- [ ] NPC 对话锁定：一个 NPC 同时只能和一个人对话，其他人收到 `DIALOGUE_BUSY`。玩家断连/走远/超时自动释放
 - [ ] 对话触发 UI：点 NPC → 弹出对话面板
+- [ ] 对话状态机：NPC 只有 FREE / TALKING 两个状态
 - [ ] Python FastAPI 项目：`POST /api/dialogue` 接受对话请求
-- [ ] Java 侧 `LlmProvider` 接口 + HTTP 实现调 Python 服务
-- [ ] AiIntegrationService：异步提交对话请求 + 超时兜底
-- [ ] 好感度系统（H2 持久化）
-- [ ] 兜底机制：AI 服务不可用时，NPC 沉默或返回模板回复
+- [ ] Java 侧 `LlmProvider` 接口 + HTTP 实现调 Python 服务（`@ConditionalOnProperty` 切换 DeepSeek / Mock）
+- [ ] AiIntegrationService：异步提交对话请求 + 超时兜底（3 秒无回复 NPC 沉默）
+- [ ] 好感度系统（H2 持久化，先和 NPC 状态塞同一张表）
+- [ ] `PLAYER_TALK`、`DIALOGUE_BUSY`、`NPC_IN_RANGE`、`NPC_OUT_OF_RANGE` 消息类型支持
+- [ ] 架构：事件驱动，无 tick 循环。游戏循环在 Iteration 2 引入
 
 ### 演示标准
 走到 Edith 面前 → 点击 → 输入"你好，今天有什么好吃的？" → Edith 用 DeepSeek 生成回复 → 好感度 +1 → 所有对话 H2 有记录

@@ -4,8 +4,16 @@
 
 ### 端点
 ```
-ws://localhost:8080/ws/tavern?playerId={playerId}
+ws://localhost:8080/ws/tavern
 ```
+
+连接建立后，客户端**必须**立即发送 `PLAYER_ENTER` 完成身份注册：
+
+```json
+{ "type": "PLAYER_ENTER", "payload": { "playerId": "xxx", "playerName": "旅人" } }
+```
+
+首条消息必须是 `PLAYER_ENTER`，在此之前所有其他类型消息会被拒绝并关闭连接。
 
 ### 消息格式
 
@@ -31,7 +39,8 @@ ws://localhost:8080/ws/tavern?playerId={playerId}
 | `PLAYER_ENTER` | `{"playerId": "string", "playerName": "string"}` | 玩家进入酒馆 |
 | `PLAYER_MOVE` | `{"x": number, "y": number}` | 玩家移动 |
 | `PLAYER_TALK` | `{"npcId": "string", "message": "string"}` | 玩家对 NPC 说话 |
-| `PLAYER_GIFT` | `{"npcId": "string", "itemId": "string"}` | 赠送物品给 NPC |
+| `PLAYER_TALK_END` | `{"npcId": "string"}` | 玩家主动结束对话 |
+| `PLAYER_GIFT` | `{"npcId": "string", "itemId": "string"}` | 赠送物品给 NPC（Iteration 2） |
 | `PLAYER_LEAVE` | `{}` | 玩家离开酒馆 |
 
 ### 服务器 → 客户端
@@ -39,28 +48,53 @@ ws://localhost:8080/ws/tavern?playerId={playerId}
 | type | payload | 说明 |
 |------|---------|------|
 | `WORLD_STATE` | `{"players": [...], "npcs": [...], "rooms": [...]}` | 全量世界状态（进入时推送） |
-| `WORLD_DIFF` | `{"changedPlayers": [...], "changedNpcs": [...], "removedIds": [...]}` | 增量世界变化（定时广播） |
+| `WORLD_DIFF` | `{"changedPlayers": [...], "changedNpcs": [...], "removedIds": [...]}` | 增量世界变化（Iteration 2 引入 tick 后启用） |
 | `DIALOGUE` | `{"npcId": "string", "message": "string", "emotion": "string", "relationshipDelta": number}` | NPC 对话回复 |
 | `DIALOGUE_PENDING` | `{"npcId": "string"}` | AI 正在生成回复，请等待（1-3 秒内） |
+| `DIALOGUE_BUSY` | `{"npcId": "string", "npcName": "string"}` | NPC 正和其他玩家交谈，暂时无法对话 |
+| `NPC_IN_RANGE` | `{"npcId": "string", "npcName": "string", "x": number, "y": number}` | 玩家进入某 NPC 触发范围，可发起对话 |
+| `NPC_OUT_OF_RANGE` | `{"npcId": "string"}` | 玩家离开 NPC 触发范围（若正在对话则自动结束） |
+| `PLAYER_MOVED` | `{"playerId": "string", "x": number, "y": number}` | 其他玩家位置更新 |
+| `PONG` | `{}` | 心跳回复 |
 | `SYSTEM` | `{"level": "info"|"warn"|"error", "message": "string"}` | 系统消息（通知/警告/错误） |
 | `PLAYER_LEFT` | `{"playerId": "string"}` | 其他玩家离开酒馆 |
 
-### 对话流程
+### 对话流程（含感知 + 锁定）
 
 ```
-玩家                   Java 服务器              Python AI
-  │                      │                       │
-  │── PLAYER_TALK ──────→│                       │
-  │                      │── HTTP POST ────────→│
-  │                      │   /api/dialogue       │
-  │── DIALOGUE_PENDING ─→│                       │
-  │   (显示"对方正在思考") │                       │── 调 DeepSeek API
-  │                      │                       │
-  │                      │←──── HTTP 200 ───────│
-  │── DIALOGUE ─────────→│                       │
-  │   (显示 NPC 回复)     │                       │
-  │                      │                       │
-  │          超时 3 秒无回复 → 走兜底模板回复        │
+玩家                    Java 服务器                     Python AI
+ │                         │                              │
+ │── PLAYER_MOVE ─────────→│                              │
+ │                         │ 距离校验：玩家进入 NPC 范围     │
+ │←── NPC_IN_RANGE ───────│                              │
+ │   (高亮 NPC，显示"对话")  │                              │
+ │                         │                              │
+ │── PLAYER_TALK ─────────→│                              │
+ │                         │ 检查 NPC 是否 FREE            │
+ │                         │                              │
+ │   ┌─ NPC 正在和他人对话：  │                              │
+ │   │                      │                              │
+ │   │← DIALOGUE_BUSY ─────│                              │
+ │   │  ("正和别人交谈")     │                              │
+ │   └─ NPC 空闲：           │                              │
+ │                         │ NPC → TALKING                │
+ │                         │ current_talk_target = A      │
+ │                         │                              │
+ │←── DIALOGUE_PENDING ───│                              │
+ │   (显示"对方正在思考")   │── HTTP POST ────────────────→│
+ │                         │   /api/dialogue              │── 调 DeepSeek API
+ │                         │                              │
+ │                         │←──── HTTP 200 ──────────────│
+ │←── DIALOGUE ───────────│                              │
+ │   (显示 NPC 回复)        │                              │
+ │                         │                              │
+ │          超时 3 秒无回复 → 走兜底：NPC 沉默               │
+ │                         │                              │
+ │  玩家走远 / PLAYER_TALK_END / 30s 超时 / 断连           │
+ │                         │                              │
+ │                         │ NPC → FREE                   │
+ │                         │ current_talk_target = null   │
+ │←── NPC_OUT_OF_RANGE ───│                              │
 ```
 
 ## HTTP（Java ↔ Python AI 服务）

@@ -1,5 +1,61 @@
 # NPC 系统设计
 
+## 核心概念：定义 vs 状态
+
+NPC 有两层数据，**永远分离**：
+
+```
+NPC 定义（JSON，不可变）              NPC 运行时状态（H2，可变）
+─────────────────────────            ─────────────────────────
+· id, name, title, race              · current_x, current_y
+· OCEAN 性格参数                     · current_emotion (JSON)
+· background（背景故事）              · current_state (FREE / TALKING)
+· speakingStyle（说话风格）           · current_talk_target (playerId)
+· initialRelationship（初始好感度）   · player_relationships (JSON)
+· position（初始位置）                · player_memories (JSON)
+· triggerRadius（触发半径）           · last_active_at
+```
+
+- **定义**：从 `server/src/main/resources/npcs/{npcId}.json` 加载，NpcFactory 在启动时读取。增加 NPC = 新增一个 JSON 文件
+- **状态**：存在 H2 `npc_states` 表。启动时 NpcFactory 合并定义和状态，生成内存中的 `NpcInstance`
+- **为什么分离**：定义是静态的"NPC 是什么人"，状态是动态的"NPC 现在怎么样"。修改 NPC 性格不会丢失他在游戏中的记忆和关系
+
+## 对话锁定：一个 NPC 同时只和一个人说话
+
+模拟真实世界社交规则。NPC 状态机只有两个状态：
+
+```
+FREE ──玩家点击对话──→ TALKING
+  ↑                      │
+  └── 玩家离开/超时/结束 ──┘
+```
+
+| 场景 | 行为 |
+|------|------|
+| 玩家 A 点击空闲 NPC | NPC → TALKING，`current_talk_target = A` |
+| 玩家 B 点击正在对话的 NPC | 后端返回 `DIALOGUE_BUSY`，前端提示"正在和别人交谈" |
+| 对话中玩家断连 | WebSocket `onClose` → 释放该玩家所有 NPC 锁定 |
+| 对话中玩家走远（> triggerRadius） | `handlePlayerMove` 检测距离 → 自动结束对话 |
+| 对话中玩家 30 秒不发言 | 超时自动结束对话 |
+
+**并发收益**：同一时刻只有一个玩家能写 NPC 状态，不存在竞争写入，不需要锁。
+
+## 感知机制：前端视觉 + 后端权威
+
+| 职责 | 谁做 | 用途 |
+|------|------|------|
+| 距离计算 + NPC 高亮 | 前端 | 纯视觉反馈，玩家改 JS 也只会影响高亮 |
+| 距离校验 + 对话权限 | 后端 | `handlePlayerMove` 中做权威校验，前端绕不过去 |
+
+流程：
+```
+玩家按 W → 前端立即更新位置 + 高亮附近 NPC
+       → 发送 PLAYER_MOVE
+              → 后端校验位置 + 算距离
+              → 在范围内 → 推 NPC_IN_RANGE → 前端可展示对话按钮
+              → 超出范围 → 推 NPC_OUT_OF_RANGE（如果之前有在对话则自动结束）
+```
+
 ## 性格模型：OCEAN 五因素
 
 每个 NPC 由 5 个维度定义，范围 0-100。这 5 个值影响 Prompt 生成、情感变化方向和对话风格。
@@ -100,15 +156,21 @@ Luna (A:30 → 不信任):
     10条最近交互         重要事件持久化     语义检索用
 ```
 
-### Iteration 2 的简化实现
+### Iteration 1 的简化实现
+
+所有 NPC 运行时数据存在一张表 `npc_states`，后续字段多了再拆：
 
 ```
-H2 表 npc_memories:
-  id | npc_id | player_id | event_type | summary | importance | created_at
-
-按 npc_id + player_id 查询最近的 N 条记忆，
-拼接进对话 Prompt 作为上下文。
+H2 表 npc_states:
+  npc_id (PK) | current_x | current_y | current_emotion (JSON) |
+  current_state (FREE/TALKING) | current_talk_target |
+  player_relationships (JSON) | player_memories (JSON) | last_active_at
 ```
+
+- `player_relationships`：`{ "player_001": { "score": 65, "last_updated": "..." }, ... }`
+- `player_memories`：`{ "player_001": [{"event": "...", "importance": 5, "time": "..."}, ...], ... }`
+
+对话时按 `npc_id + player_id` 取出对应的记忆和好感度，拼接进对话 Prompt。
 
 ## Prompt 模板结构（Python 侧，Iteration 1 实现）
 

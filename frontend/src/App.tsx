@@ -41,7 +41,7 @@ function App() {
    */
   const [localPosition, setLocalPosition] = useState<{ x: number; y: number } | null>(null)
 
-  const wsUrl = `ws://localhost:8080/ws/tavern?playerId=${playerId}&playerName=旅人`
+  const wsUrl = `ws://localhost:8080/ws/tavern`
 
   const { status, connect, send, addListener } = useWebSocket(wsUrl)
 
@@ -100,6 +100,13 @@ function App() {
   useEffect(() => {
     connect()
   }, [connect])
+
+  // 连接成功后发送 PLAYER_ENTER 完成身份注册
+  useEffect(() => {
+    if (status === 'connected') {
+      send({ type: 'PLAYER_ENTER', payload: { playerId, playerName: '旅人' } })
+    }
+  }, [status, send, playerId])
 
   // 世界状态加载后解析房间物体
   useEffect(() => {
