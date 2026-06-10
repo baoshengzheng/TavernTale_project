@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
-import type { WorldState, ConnectionStatus, PlayerInfo, Room } from './types/game'
+import type { WorldState, ConnectionStatus, PlayerInfo, Room, NpcInfo, DialogueMessage } from './types/game'
+import { DialoguePanel } from './components/DialoguePanel'
 
 /**
  * 酒馆物品定义（前端渲染用）。
@@ -31,6 +32,10 @@ function App() {
   const [playerId] = useState(() => 'player_' + Math.random().toString(36).substring(2, 8))
   const [worldState, setWorldState] = useState<WorldState | null>(null)
   const [otherPlayers, setOtherPlayers] = useState<PlayerInfo[]>([])
+  const [npcs, setNpcs] = useState<NpcInfo[]>([])
+  const [npcsInRange, setNpcsInRange] = useState<Set<string>>(new Set())
+  const [activeDialogue, setActiveDialogue] = useState<{ npcId: string; npcName: string } | null>(null)
+  const [dialogueMessages, setDialogueMessages] = useState<Map<string, DialogueMessage[]>>(new Map())
   const [roomObjects, setRoomObjects] = useState<RoomObject[]>([])
 
   /**
@@ -51,6 +56,7 @@ function App() {
       const state = msg.payload as unknown as WorldState
       setWorldState(state)
       setOtherPlayers(state.players.filter(p => p.id !== state.yourPlayerId))
+      setNpcs(state.npcs || [])
       // 初始化本地位置
       if (state.yourPosition) {
         setLocalPosition({ x: state.yourPosition.x, y: state.yourPosition.y })
@@ -92,6 +98,88 @@ function App() {
     const unsubscribe = addListener('PLAYER_LEFT', (msg) => {
       const payload = msg.payload as Record<string, unknown>
       setOtherPlayers(prev => prev.filter(p => p.id !== payload.playerId))
+    })
+    return unsubscribe
+  }, [addListener])
+
+  // 监听 NPC_IN_RANGE 消息
+  useEffect(() => {
+    const unsubscribe = addListener('NPC_IN_RANGE', (msg) => {
+      const payload = msg.payload as Record<string, unknown>
+      const npcId = payload.npcId as string
+      setNpcsInRange(prev => new Set(prev).add(npcId))
+    })
+    return unsubscribe
+  }, [addListener])
+
+  // 监听 NPC_OUT_OF_RANGE 消息
+  useEffect(() => {
+    const unsubscribe = addListener('NPC_OUT_OF_RANGE', (msg) => {
+      const payload = msg.payload as Record<string, unknown>
+      const npcId = payload.npcId as string
+      setNpcsInRange(prev => {
+        const next = new Set(prev)
+        next.delete(npcId)
+        return next
+      })
+    })
+    return unsubscribe
+  }, [addListener])
+
+  // 监听 DIALOGUE 消息
+  useEffect(() => {
+    const unsubscribe = addListener('DIALOGUE', (msg) => {
+      const payload = msg.payload as Record<string, unknown>
+      const npcId = payload.npcId as string
+      const npcName = npcs.find(n => n.id === npcId)?.name || npcId
+      const newMsg: DialogueMessage = {
+        id: crypto.randomUUID(),
+        npcId,
+        npcName,
+        content: payload.message as string,
+        isPlayer: false,
+        type: 'DIALOGUE',
+        timestamp: Date.now(),
+      }
+      setDialogueMessages(prev => {
+        const next = new Map(prev)
+        const list = next.get(npcId) || []
+        next.set(npcId, [...list, newMsg])
+        return next
+      })
+    })
+    return unsubscribe
+  }, [addListener, npcs])
+
+  // 监听 DIALOGUE_PENDING 消息
+  useEffect(() => {
+    const unsubscribe = addListener('DIALOGUE_PENDING', (msg) => {
+      const payload = msg.payload as Record<string, unknown>
+      const npcId = payload.npcId as string
+      const newMsg: DialogueMessage = {
+        id: crypto.randomUUID(),
+        npcId,
+        content: '对方正在思考…',
+        isPlayer: false,
+        type: 'DIALOGUE_PENDING',
+        timestamp: Date.now(),
+      }
+      setDialogueMessages(prev => {
+        const next = new Map(prev)
+        const list = next.get(npcId) || []
+        next.set(npcId, [...list, newMsg])
+        return next
+      })
+    })
+    return unsubscribe
+  }, [addListener])
+
+  // 监听 DIALOGUE_BUSY 消息
+  useEffect(() => {
+    const unsubscribe = addListener('DIALOGUE_BUSY', (msg) => {
+      const payload = msg.payload as Record<string, unknown>
+      const npcName = payload.npcName as string
+      alert(`${npcName} 正在和别人交谈，请稍后再试`)
     })
     return unsubscribe
   }, [addListener])
@@ -171,12 +259,46 @@ function App() {
               <TavernMap
                 room={worldState.rooms[0]}
                 objects={roomObjects}
+                npcs={npcs}
+                npcsInRange={npcsInRange}
                 myPosition={myPosition ? { x: myPosition.x, y: myPosition.y } : null}
                 otherPlayers={otherPlayers}
                 onMove={(x, y) => {
                   // 乐观更新本地位置（不等服务器确认，保证手感流畅）
                   setLocalPosition({ x, y })
                   send({ type: 'PLAYER_MOVE', payload: { x, y } })
+                }}
+                onNpcClick={(npcId, npcName) => {
+                  setActiveDialogue({ npcId, npcName })
+                }}
+              />
+            )}
+            {/* 对话面板 */}
+            {activeDialogue && (
+              <DialoguePanel
+                npcName={activeDialogue.npcName}
+                messages={dialogueMessages.get(activeDialogue.npcId) || []}
+                onSend={(message) => {
+                  // 乐观添加玩家消息到本地
+                  const playerMsg: DialogueMessage = {
+                    id: crypto.randomUUID(),
+                    npcId: activeDialogue.npcId,
+                    content: message,
+                    isPlayer: true,
+                    type: 'DIALOGUE',
+                    timestamp: Date.now(),
+                  }
+                  setDialogueMessages(prev => {
+                    const next = new Map(prev)
+                    const list = next.get(activeDialogue.npcId) || []
+                    next.set(activeDialogue.npcId, [...list, playerMsg])
+                    return next
+                  })
+                  send({ type: 'PLAYER_TALK', payload: { npcId: activeDialogue.npcId, message } })
+                }}
+                onClose={() => {
+                  send({ type: 'PLAYER_TALK_END', payload: { npcId: activeDialogue.npcId } })
+                  setActiveDialogue(null)
                 }}
               />
             )}
@@ -221,15 +343,21 @@ function App() {
 function TavernMap({
   room,
   objects,
+  npcs,
+  npcsInRange,
   myPosition,
   otherPlayers,
   onMove,
+  onNpcClick,
 }: {
   room: Room
   objects: RoomObject[]
+  npcs: NpcInfo[]
+  npcsInRange: Set<string>
   myPosition: { x: number; y: number } | null
   otherPlayers: PlayerInfo[]
   onMove: (x: number, y: number) => void
+  onNpcClick: (npcId: string, npcName: string) => void
 }) {
   const mapRef = useRef<HTMLDivElement>(null)
 
@@ -337,6 +465,31 @@ function TavernMap({
           <span className="object-label">{getObjectLabel(obj)}</span>
         </div>
       ))}
+
+      {/* NPC */}
+      {npcs.map((npc) => {
+        const inRange = npcsInRange.has(npc.id)
+        const npcEmoji: Record<string, string> = { edith: '👩‍🍳', roderick: '🍺', luna: '🧝' }
+        return (
+          <div
+            key={npc.id}
+            className={`npc-entity ${inRange ? 'in-range' : ''}`}
+            style={{
+              left: npc.x - 14,
+              top: npc.y - 14,
+            }}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (inRange) onNpcClick(npc.id, npc.name)
+            }}
+            title={inRange ? `与 ${npc.name} 对话` : npc.name}
+          >
+            <span className="npc-emoji">{npcEmoji[npc.id] || '👤'}</span>
+            <span className="npc-name-tag">{npc.name}</span>
+            {inRange && <span className="npc-interact-hint">💬 对话</span>}
+          </div>
+        )
+      })}
 
       {/* 其他玩家 */}
       {otherPlayers.map((player) => (

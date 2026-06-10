@@ -6,13 +6,20 @@
 dev-java:
 	cd server && ./mvnw spring-boot:run
 
+# 启动 AI 服务（Python FastAPI，端口 8000）
+dev-ai:
+	cd ai-service && pip install -r requirements.txt -q && python -m uvicorn main:app --reload --port 8000
+
 # 启动前端（React + Vite，端口 5173）
 dev-web:
 	cd frontend && npm run dev
 
-# 全部启动（需要先安装依赖）
+# 全部启动（在各自终端执行）
 dev-all:
-	@echo "请在三个终端分别执行: make dev-java, make dev-ai, make dev-web"
+	@echo "请分别在三个终端中执行:"
+	@echo "  make dev-java"
+	@echo "  make dev-ai"
+	@echo "  make dev-web"
 
 # 清理
 clean:

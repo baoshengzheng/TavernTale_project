@@ -259,6 +259,61 @@ body {
   pointer-events: none;
 }
 
+/* ---------- NPC ---------- */
+.npc-entity {
+  position: absolute;
+  z-index: 8;
+  pointer-events: auto;
+  cursor: default;
+  transition: filter 0.3s;
+}
+
+.npc-entity.in-range {
+  filter: drop-shadow(0 0 6px var(--color-accent));
+  cursor: pointer;
+}
+
+.npc-emoji {
+  font-size: 1.8rem;
+  display: block;
+  text-align: center;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+}
+
+.npc-name-tag {
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.65rem;
+  color: var(--color-accent);
+  white-space: nowrap;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 1px 8px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.npc-interact-hint {
+  position: absolute;
+  bottom: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.7rem;
+  color: var(--color-accent);
+  white-space: nowrap;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 2px 8px;
+  border-radius: 4px;
+  pointer-events: none;
+  animation: hintBounce 1s infinite;
+}
+
+@keyframes hintBounce {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(-4px); }
+}
+
 /* ---------- 底栏 ---------- */
 .game-footer {
   padding: 6px 20px;

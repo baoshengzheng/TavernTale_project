@@ -32,10 +32,32 @@ export interface PlayerInfo {
   roomId: string
 }
 
+/** NPC 信息 */
+export interface NpcInfo {
+  id: string
+  name: string
+  description: string
+  x: number
+  y: number
+  state: 'FREE' | 'TALKING'
+}
+
+/** 对话消息 */
+export interface DialogueMessage {
+  id: string
+  npcId: string
+  npcName?: string
+  content: string
+  isPlayer: boolean
+  type: 'DIALOGUE' | 'DIALOGUE_PENDING' | 'SYSTEM' | 'DIALOGUE_BUSY'
+  timestamp: number
+}
+
 /** 世界状态（进入游戏时推送） */
 export interface WorldState {
   rooms: Room[]
   players: PlayerInfo[]
+  npcs: NpcInfo[]
   yourPlayerId: string
   yourPosition: {
     x: number

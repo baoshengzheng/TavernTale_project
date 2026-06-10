@@ -35,6 +35,13 @@ spring:
 
 # 游戏配置
 game:
-  tick-rate: 200        # 游戏主循环 tick 间隔（毫秒），5 tick/s
+  tick-rate: 200        # 游戏主循环 tick 间隔（毫秒），5 tick/s（Iteration 2 启用）
   npc-trigger-radius: 80 # NPC 感知玩家半径（像素）
-  ai-timeout: 3000       # AI 调用超时时间（毫秒）
+  ai-timeout: 3000       # AI 调用超时时间（毫秒），超时走兜底回复
+
+  # LLM 提供商配置
+  llm:
+    provider: deepseek         # mock（默认，开发用）| deepseek（需启动 Python 服务）
+    deepseek:
+      base-url: http://localhost:8000
+      timeout: 5000        # HTTP 连接超时（毫秒），区别于 game.ai-timeout

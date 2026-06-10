@@ -1,6 +1,8 @@
 package com.taverntales.controller.ws;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.taverntales.domain.npc.NpcFactory;
+import com.taverntales.domain.npc.NpcInstance;
 import com.taverntales.domain.player.Player;
 import com.taverntales.domain.player.PlayerService;
 import com.taverntales.domain.world.Room;
@@ -10,6 +12,7 @@ import com.taverntales.dto.request.PlayerEnterRequest;
 import com.taverntales.dto.request.PlayerMoveRequest;
 import com.taverntales.dto.request.PlayerTalkEndRequest;
 import com.taverntales.dto.request.PlayerTalkRequest;
+import com.taverntales.service.ai.AiIntegrationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -45,6 +48,8 @@ public class TavernWebSocketHandler implements WebSocketHandler {
     private final WebSocketSessionManager sessionManager;
     private final PlayerService playerService;
     private final WorldService worldService;
+    private final NpcFactory npcFactory;
+    private final AiIntegrationService aiIntegrationService;
 
     /**
      * 建立 WebSocket 连接后的主处理入口。
@@ -206,17 +211,44 @@ public class TavernWebSocketHandler implements WebSocketHandler {
                         .timestamp(Instant.now().toEpochMilli())
                         .payload(Map.of("playerId", playerId, "x", player.getX(), "y", player.getY()))
                         .build()));
+
+        // NPC 感知检测：判断玩家是否进入/离开 NPC 触发范围
+        NpcFactory.ProximityResult proximity = npcFactory.checkProximity(playerId, req.x(), req.y());
+        for (NpcInstance npc : proximity.enteredNpcs()) {
+            sendMessage(session, buildNpcInRangeMessage(npc));
+        }
+        for (NpcInstance npc : proximity.exitedNpcs()) {
+            // 如果玩家正在和这个 NPC 对话，自动结束
+            if (npc.isLockedBy(playerId)) {
+                npcFactory.unlockNpc(npc.getId());
+            }
+            sendMessage(session, buildNpcOutOfRangeMessage(npc.getId()));
+        }
     }
 
     /**
      * 处理玩家对 NPC 说话。
-     * Iteration 1 实现：校验 NPC 存在性 + 锁定状态 + 提交 AI 请求。
+     *
+     * 流程：校验 NPC 存在 → 校验在范围内 → 尝试锁定 → 发送 DIALOGUE_PENDING → 异步提交 AI
      */
     private void handlePlayerTalk(WebSocketSession session, String playerId, WebSocketMessage message) {
         PlayerTalkRequest req = convertPayload(message, PlayerTalkRequest.class);
-        // Iteration 1 TODO: NPC 存在性校验、对话锁定、异步 AI 调用
-        log.info("玩家 [{}] 对 NPC [{}] 说话: {}", playerId, req.npcId(), req.message());
-        sendSystem(session, "info", "对话功能将在 Iteration 1 实现");
+        NpcInstance npc = npcFactory.getNpc(req.npcId());
+
+        if (npc == null) {
+            sendSystem(session, "error", "找不到这个 NPC");
+            return;
+        }
+        if (!npcFactory.isPlayerInRange(playerId, req.npcId())) {
+            sendSystem(session, "warn", "你离得太远了，走近一些再说话吧");
+            return;
+        }
+        if (!npcFactory.tryLockNpc(req.npcId(), playerId)) {
+            sendMessage(session, buildDialogueBusyMessage(req.npcId(), npc.getName()));
+            return;
+        }
+        sendMessage(session, buildDialoguePendingMessage(req.npcId()));
+        aiIntegrationService.submitDialogue(req.npcId(), playerId, req.message(), session);
     }
 
     /**
@@ -224,8 +256,10 @@ public class TavernWebSocketHandler implements WebSocketHandler {
      */
     private void handlePlayerTalkEnd(WebSocketSession session, String playerId, WebSocketMessage message) {
         PlayerTalkEndRequest req = convertPayload(message, PlayerTalkEndRequest.class);
-        // Iteration 1 TODO: 释放 NPC 对话锁定
-        log.info("玩家 [{}] 结束与 NPC [{}] 的对话", playerId, req.npcId());
+        NpcInstance npc = npcFactory.getNpc(req.npcId());
+        if (npc != null && npc.isLockedBy(playerId)) {
+            npcFactory.unlockNpc(req.npcId());
+        }
     }
 
     /**
@@ -246,6 +280,7 @@ public class TavernWebSocketHandler implements WebSocketHandler {
      * 玩家断连后的清理工作。
      */
     private void handleSessionCleanup(String playerId, boolean broadcast) {
+        npcFactory.unlockAllForPlayer(playerId);
         sessionManager.unregister(playerId);
         playerService.leaveTavern(playerId);
         if (broadcast) {
@@ -271,6 +306,7 @@ public class TavernWebSocketHandler implements WebSocketHandler {
         Map<String, Object> worldPayload = new HashMap<>();
         worldPayload.put("rooms", rooms.stream().map(this::roomToMap).toList());
         worldPayload.put("players", onlinePlayers.stream().map(this::playerToMap).toList());
+        worldPayload.put("npcs", npcFactory.getAllNpcs().stream().map(this::npcToMap).toList());
         worldPayload.put("yourPlayerId", playerId);
         currentPlayerOpt.ifPresent(p -> worldPayload.put("yourPosition",
                 Map.of("x", p.getX(), "y", p.getY(), "roomId", p.getCurrentRoomId())));
@@ -339,6 +375,57 @@ public class TavernWebSocketHandler implements WebSocketHandler {
         map.put("y", player.getY());
         map.put("roomId", player.getCurrentRoomId());
         return map;
+    }
+
+    /**
+     * NPC 转 Map，控制暴露给前端的字段。
+     */
+    private Map<String, Object> npcToMap(NpcInstance npc) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", npc.getId());
+        map.put("name", npc.getName());
+        map.put("description", npc.getDescription());
+        map.put("x", npc.getCurrentX());
+        map.put("y", npc.getCurrentY());
+        map.put("state", npc.getCurrentState().name());
+        return map;
+    }
+
+    private WebSocketMessage buildNpcInRangeMessage(NpcInstance npc) {
+        return WebSocketMessage.builder()
+                .type("NPC_IN_RANGE")
+                .requestId(UUID.randomUUID().toString())
+                .timestamp(Instant.now().toEpochMilli())
+                .payload(Map.of("npcId", npc.getId(), "npcName", npc.getName(),
+                        "x", npc.getCurrentX(), "y", npc.getCurrentY()))
+                .build();
+    }
+
+    private WebSocketMessage buildNpcOutOfRangeMessage(String npcId) {
+        return WebSocketMessage.builder()
+                .type("NPC_OUT_OF_RANGE")
+                .requestId(UUID.randomUUID().toString())
+                .timestamp(Instant.now().toEpochMilli())
+                .payload(Map.of("npcId", npcId))
+                .build();
+    }
+
+    private WebSocketMessage buildDialoguePendingMessage(String npcId) {
+        return WebSocketMessage.builder()
+                .type("DIALOGUE_PENDING")
+                .requestId(UUID.randomUUID().toString())
+                .timestamp(Instant.now().toEpochMilli())
+                .payload(Map.of("npcId", npcId))
+                .build();
+    }
+
+    private WebSocketMessage buildDialogueBusyMessage(String npcId, String npcName) {
+        return WebSocketMessage.builder()
+                .type("DIALOGUE_BUSY")
+                .requestId(UUID.randomUUID().toString())
+                .timestamp(Instant.now().toEpochMilli())
+                .payload(Map.of("npcId", npcId, "npcName", npcName))
+                .build();
     }
 
     // ==================== 消息发送 ====================
