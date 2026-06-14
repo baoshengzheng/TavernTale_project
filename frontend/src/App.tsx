@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
 import type { WorldState, ConnectionStatus, PlayerInfo, Room, NpcInfo, DialogueMessage } from './types/game'
 import { DialoguePanel } from './components/DialoguePanel'
@@ -37,6 +37,18 @@ function App() {
   const [activeDialogue, setActiveDialogue] = useState<{ npcId: string; npcName: string } | null>(null)
   const [dialogueMessages, setDialogueMessages] = useState<Map<string, DialogueMessage[]>>(new Map())
   const [roomObjects, setRoomObjects] = useState<RoomObject[]>([])
+  const [toast, setToast] = useState<{ message: string; level: string } | null>(null)
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /**
+   * 显示 toast 提示，3 秒后自动消失。
+   * 连续调用时重置计时器。
+   */
+  const showToast = useCallback((message: string, level: string) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    setToast({ message, level })
+    toastTimerRef.current = setTimeout(() => setToast(null), 3000)
+  }, [])
 
   /**
    * 玩家本地位置状态 — 乐观更新。
@@ -179,10 +191,21 @@ function App() {
     const unsubscribe = addListener('DIALOGUE_BUSY', (msg) => {
       const payload = msg.payload as Record<string, unknown>
       const npcName = payload.npcName as string
-      alert(`${npcName} 正在和别人交谈，请稍后再试`)
+      showToast(`${npcName} 正在和别人交谈，请稍后再试`, 'warn')
     })
     return unsubscribe
-  }, [addListener])
+  }, [addListener, showToast])
+
+  // 监听 SYSTEM 消息 — 服务端通知（距离太远、NPC 不存在等）
+  useEffect(() => {
+    const unsubscribe = addListener('SYSTEM', (msg) => {
+      const payload = msg.payload as Record<string, unknown>
+      const level = (payload.level as string) || 'info'
+      const message = (payload.message as string) || ''
+      showToast(message, level)
+    })
+    return unsubscribe
+  }, [addListener, showToast])
 
   // 自动连接
   useEffect(() => {
@@ -322,6 +345,16 @@ function App() {
           </div>
         )}
       </main>
+
+      {/* Toast 通知 — 服务端 SYSTEM 消息、警告、错误提示 */}
+      {toast && (
+        <div className={`toast toast-${toast.level}`} onClick={() => setToast(null)}>
+          <span className="toast-icon">
+            {toast.level === 'error' ? '❌' : toast.level === 'warn' ? '⚠️' : 'ℹ️'}
+          </span>
+          <span className="toast-message">{toast.message}</span>
+        </div>
+      )}
 
       {/* 底栏：提示信息 */}
       <footer className="game-footer">

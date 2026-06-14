@@ -29,6 +29,7 @@ public class NpcInstance {
     public String getSpeakingStyle() { return definition.getSpeakingStyle(); }
     public NpcDefinition.OCEAN getPersonality() { return definition.getPersonality(); }
     public int getTriggerRadius() { return definition.getTriggerRadius(); }
+    public int getInitialRelationship() { return definition.getInitialRelationship(); }
 
     // ---- 来自 NpcState 的可变字段 ----
 

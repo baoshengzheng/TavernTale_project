@@ -3,7 +3,9 @@ package com.taverntales.service.ai;
 import com.taverntales.controller.ws.WebSocketSessionManager;
 import com.taverntales.domain.npc.NpcFactory;
 import com.taverntales.domain.npc.NpcInstance;
+import com.taverntales.domain.npc.NpcState;
 import com.taverntales.dto.WebSocketMessage;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,6 +16,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.*;
 
 /**
@@ -93,8 +96,8 @@ public class AiIntegrationService {
         ));
 
         request.put("current_emotion", npc.getCurrentEmotionJson());
-        request.put("relationship_score", 50); // TODO: 从 npcState 中解析实际好感度
-        request.put("recent_memories", npc.getPlayerMemoriesJson());
+        request.put("relationship_score", getRelationshipScore(npc, playerId));
+        request.put("recent_memories", getPlayerMemories(npc.getPlayerMemoriesJson(), playerId));
         request.put("world_context", "傍晚，酒馆里有几个客人。壁炉里的火噼啪作响。");
 
         return request;
@@ -112,11 +115,24 @@ public class AiIntegrationService {
                 return;
             }
 
-            // 更新 NPC 状态（情绪、好感度、记忆）
+            // 更新 NPC 状态：好感度 +1、情绪变化、记忆追加
             NpcInstance npc = npcFactory.getNpc(npcId);
             if (npc != null && !response.fallback()) {
-                // TODO: 解析 emotionChange 和 newMemories，更新 NpcState JSON 字段
-                npcFactory.saveNpcState(npc.getState());
+                NpcState state = npc.getState();
+                // 好感度 +1
+                state.setPlayerRelationshipsJson(
+                        incrementRelationship(state.getPlayerRelationshipsJson(), playerId, npc.getInitialRelationship()));
+                // 更新情绪
+                if (response.emotionChange() != null && !response.emotionChange().isBlank()) {
+                    state.setCurrentEmotionJson(
+                            updateEmotion(state.getCurrentEmotionJson(), response.emotionChange()));
+                }
+                // 追加记忆
+                if (response.newMemories() != null && !response.newMemories().isBlank()) {
+                    state.setPlayerMemoriesJson(
+                            appendMemory(state.getPlayerMemoriesJson(), playerId, response.newMemories()));
+                }
+                npcFactory.saveNpcState(state);
             }
 
             // 解锁 NPC
@@ -170,6 +186,146 @@ public class AiIntegrationService {
                     .subscribe(null, e -> log.error("发送 DIALOGUE 失败", e));
         } catch (Exception e) {
             log.error("序列化 DIALOGUE 消息失败", e);
+        }
+    }
+
+    // ==================== JSON 状态解析与更新 ====================
+
+    /**
+     * 从 playerRelationshipsJson 中获取指定玩家的好感度。
+     * 如果没有历史记录，回退到 NPC 定义的 initialRelationship。
+     */
+    private int getRelationshipScore(NpcInstance npc, String playerId) {
+        try {
+            String json = npc.getPlayerRelationshipsJson();
+            if (json == null || json.isBlank() || "{}".equals(json.trim())) {
+                return npc.getInitialRelationship();
+            }
+            Map<String, Map<String, Object>> relationships = objectMapper.readValue(
+                    json, new TypeReference<Map<String, Map<String, Object>>>() {});
+            Map<String, Object> rel = relationships.get(playerId);
+            if (rel != null && rel.get("score") instanceof Number score) {
+                return score.intValue();
+            }
+        } catch (Exception e) {
+            log.warn("解析好感度 JSON 失败 (npc={}, player={}): {}", npc.getId(), playerId, e.getMessage());
+        }
+        return npc.getInitialRelationship();
+    }
+
+    /**
+     * 从 playerMemoriesJson 中提取指定玩家的记忆列表。
+     * 格式化为 AI 可读的文本摘要。
+     */
+    private String getPlayerMemories(String json, String playerId) {
+        try {
+            if (json == null || json.isBlank() || "{}".equals(json.trim())) {
+                return "无（初次见面）";
+            }
+            Map<String, List<Map<String, Object>>> memories = objectMapper.readValue(
+                    json, new TypeReference<Map<String, List<Map<String, Object>>>>() {});
+            List<Map<String, Object>> playerMemories = memories.getOrDefault(playerId, List.of());
+            if (playerMemories.isEmpty()) return "无（初次见面）";
+            // 取最近 5 条记忆
+            int from = Math.max(0, playerMemories.size() - 5);
+            StringBuilder sb = new StringBuilder();
+            for (int i = from; i < playerMemories.size(); i++) {
+                sb.append("- ").append(playerMemories.get(i).get("event")).append("\n");
+            }
+            return sb.toString().trim();
+        } catch (Exception e) {
+            log.warn("解析记忆 JSON 失败 (player={}): {}", playerId, e.getMessage());
+            return "无";
+        }
+    }
+
+    /**
+     * 玩家好感度 +1 并返回更新后的 JSON。
+     *
+     * 为什么每次对话只 +1？
+     * 防止玩家反复刷对话刷满好感度。好感度应通过多个维度（送礼、任务）
+     * 逐步积累，对话只是其中一个温和的加分项。
+     */
+    private String incrementRelationship(String json, String playerId, int initialScore) {
+        try {
+            Map<String, Map<String, Object>> relationships;
+            if (json == null || json.isBlank() || "{}".equals(json.trim())) {
+                relationships = new LinkedHashMap<>();
+            } else {
+                relationships = objectMapper.readValue(json,
+                        new TypeReference<Map<String, Map<String, Object>>>() {});
+            }
+            Map<String, Object> rel = relationships.containsKey(playerId)
+                    ? relationships.get(playerId)
+                    : new LinkedHashMap<>();
+            int current = rel.get("score") instanceof Number s ? s.intValue() : initialScore;
+            rel.put("score", Math.min(100, current + 1));
+            rel.put("lastUpdated", LocalDateTime.now().toString());
+            relationships.put(playerId, rel);
+            return objectMapper.writeValueAsString(relationships);
+        } catch (Exception e) {
+            log.warn("更新好感度 JSON 失败 (player={}): {}", playerId, e.getMessage());
+            return json;
+        }
+    }
+
+    /**
+     * 根据情绪变化描述更新 currentEmotionJson。
+     * 变化格式："joy: +5" 或 "joy: +5, sadness: -2"。
+     */
+    private String updateEmotion(String currentJson, String changeDescription) {
+        if (changeDescription == null || changeDescription.isBlank()) return currentJson;
+        try {
+            Map<String, Integer> emotions;
+            if (currentJson == null || currentJson.isBlank() || "{}".equals(currentJson.trim())) {
+                emotions = new LinkedHashMap<>();
+            } else {
+                emotions = objectMapper.readValue(currentJson, new TypeReference<Map<String, Integer>>() {});
+            }
+            for (String part : changeDescription.split(",")) {
+                String[] kv = part.trim().split(":");
+                if (kv.length == 2) {
+                    String emotion = kv[0].trim();
+                    int delta = Integer.parseInt(kv[1].trim().replace("+", ""));
+                    emotions.merge(emotion, delta, Integer::sum);
+                    emotions.put(emotion, Math.max(0, Math.min(100, emotions.get(emotion))));
+                }
+            }
+            return objectMapper.writeValueAsString(emotions);
+        } catch (Exception e) {
+            log.warn("更新情绪 JSON 失败: {}", e.getMessage());
+            return currentJson;
+        }
+    }
+
+    /**
+     * 追加一条玩家记忆并返回更新后的 JSON。
+     * 最多保留最近 20 条记忆，防止 JSON 无限膨胀。
+     */
+    private String appendMemory(String currentJson, String playerId, String newMemory) {
+        if (newMemory == null || newMemory.isBlank()) return currentJson;
+        try {
+            Map<String, List<Map<String, Object>>> memories;
+            if (currentJson == null || currentJson.isBlank() || "{}".equals(currentJson.trim())) {
+                memories = new LinkedHashMap<>();
+            } else {
+                memories = objectMapper.readValue(currentJson,
+                        new TypeReference<Map<String, List<Map<String, Object>>>>() {});
+            }
+            List<Map<String, Object>> list = memories.getOrDefault(playerId, new ArrayList<>());
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("event", newMemory);
+            entry.put("importance", 5);
+            entry.put("time", LocalDateTime.now().toString());
+            list.add(entry);
+            if (list.size() > 20) {
+                list = new ArrayList<>(list.subList(list.size() - 20, list.size()));
+            }
+            memories.put(playerId, list);
+            return objectMapper.writeValueAsString(memories);
+        } catch (Exception e) {
+            log.warn("更新记忆 JSON 失败 (player={}): {}", playerId, e.getMessage());
+            return currentJson;
         }
     }
 }

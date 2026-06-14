@@ -327,3 +327,59 @@ body {
 .game-footer span {
   margin: 0 4px;
 }
+
+/* ---------- Toast 通知 ---------- */
+.toast {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  animation: toast-in 0.3s ease-out;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.toast-info {
+  background: #1a3a1a;
+  border: 1px solid #3a6a3a;
+  color: #b8d8b8;
+}
+
+.toast-warn {
+  background: #3a2a0a;
+  border: 1px solid #8a6a2a;
+  color: #e8d898;
+}
+
+.toast-error {
+  background: #3a1a1a;
+  border: 1px solid #8a3a3a;
+  color: #e8a0a0;
+}
+
+.toast-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.toast-message {
+  white-space: nowrap;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
